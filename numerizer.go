@@ -2,7 +2,7 @@
 package numerizer
 
 import (
-	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -74,11 +74,11 @@ const (
 func newItem(s string) item {
 	switch s {
 	case "zero":
-		return item{typ: itemZero}
+		return item{typ: itemZero, key: s}
 	case "hundred":
 		return item{typ: itemHundred, key: s, val: 100}
 	case "and":
-		return item{typ: itemAnd}
+		return item{typ: itemAnd, key: s}
 	}
 	return newItemFromMap(s)
 }
@@ -93,7 +93,7 @@ func newItemFromMap(s string) item {
 	} else if v, ok := largeNumbers[s]; ok {
 		return item{typ: itemLarge, key: s, val: v}
 	}
-	return item{}
+	return item{key: s}
 }
 
 func (i item) String() string {
@@ -155,7 +155,8 @@ func Parse(s string) (int64, error) {
 }
 
 func parse(p *parser) parseFn {
-	switch i := p.peek(); i.typ {
+	i := p.peek()
+	switch i.typ {
 	case itemZero:
 		return parseZero
 	case itemSingle:
@@ -165,13 +166,14 @@ func parse(p *parser) parseFn {
 	case itemTenPrefix:
 		return parseTenPrefix
 	}
-	return parseError
+	return parseError(p, i, item{})
 }
 
 func parseZero(p *parser) parseFn {
-	p.next()
-	if p.peek().typ != itemEOL {
-		return parseError
+	i := p.next()
+	next := p.peek()
+	if next.typ != itemEOL {
+		return parseError(p, next, i)
 	}
 	return nil
 }
@@ -191,7 +193,7 @@ func parseSingle(p *parser) parseFn {
 		p.sum += p.prev + i.val
 		return nil
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
 func parseDirect(p *parser) parseFn {
@@ -208,7 +210,7 @@ func parseDirect(p *parser) parseFn {
 		p.sum += p.prev + i.val
 		return nil
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
 func parseTenPrefix(p *parser) parseFn {
@@ -236,7 +238,7 @@ func parseTenPrefix(p *parser) parseFn {
 		p.sum += p.prev + i.val
 		return nil
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
 func parseHundred(p *parser) parseFn {
@@ -258,7 +260,7 @@ func parseHundred(p *parser) parseFn {
 		p.sum += p.prev
 		return nil
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
 func parseLarge(p *parser) parseFn {
@@ -278,11 +280,11 @@ func parseLarge(p *parser) parseFn {
 	case itemEOL:
 		return nil
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
 func parseAnd(p *parser) parseFn {
-	p.next()
+	i := p.next()
 	next := p.peek()
 	switch next.typ {
 	case itemSingle:
@@ -292,10 +294,19 @@ func parseAnd(p *parser) parseFn {
 	case itemTenPrefix:
 		return parseTenPrefix
 	}
-	return parseError
+	return parseError(p, next, i)
 }
 
-func parseError(p *parser) parseFn {
-	p.err = errors.New("numerizer: parse error")
+func parseError(p *parser, i item, after item) parseFn {
+	switch i.typ {
+	case itemError:
+		p.err = fmt.Errorf("bad number: %q", i.key)
+	default:
+		if after.typ == itemError {
+			p.err = fmt.Errorf("unexpected start %q", i.key)
+		} else {
+			p.err = fmt.Errorf("unexpected %q after %q", i.key, after.key)
+		}
+	}
 	return nil
 }
