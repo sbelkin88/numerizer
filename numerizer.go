@@ -112,6 +112,7 @@ type parser struct {
 }
 
 func newParser(s string) *parser {
+	s = preprocess(s)
 	parts := strings.Fields(s)
 	items := make([]item, 0, len(parts))
 	for _, part := range parts {
@@ -131,6 +132,12 @@ func (p *parser) peek() item {
 		return item{typ: itemEOL}
 	}
 	return p.items[p.pos]
+}
+
+func preprocess(s string) string {
+	s = strings.Replace(s, ",", "", -1)
+	s = strings.Replace(s, "-", " ", -1)
+	return s
 }
 
 type parseFn func(*parser) parseFn

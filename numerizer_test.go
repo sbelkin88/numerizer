@@ -47,6 +47,9 @@ func TestParse(t *testing.T) {
 		{"forty five thousand", 45000},
 		{"nine hundred ninety nine thousand nine hundred ninety nine", 999999},
 		{"nine hundred ninety nine million nine hundred ninety nine thousand nine hundred ninety nine", 999999999},
+		{"forty-five", 45},
+		{"four thousand, four hundred", 4400},
+		{"four thousand, four hundred thirty-two", 4432},
 	}
 
 	for _, tt := range tests {
