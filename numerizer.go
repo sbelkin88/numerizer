@@ -185,6 +185,8 @@ func parseZero(p *parser) parseFn {
 	switch next.typ {
 	case itemDollars:
 		return parseDollars
+	case itemCents:
+		return parseCents
 	case itemEOL:
 		return nil
 	}
@@ -364,8 +366,14 @@ func parseDefault(p *parser) parseFn {
 		return parseDirect
 	case itemTenPrefix:
 		return parseTenPrefix
+	case itemHundred:
+		return parseHundred
 	case itemDefault:
 		return parseDefault
+	case itemDollars:
+		return parseDollars
+	case itemCents:
+		return parseCents
 	case itemEOL:
 		if p.dollarsDone {
 			p.cents = p.sum
