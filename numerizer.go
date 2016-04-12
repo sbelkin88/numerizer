@@ -3,10 +3,11 @@ package numerizer
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
-var singleNumbers = map[string]int64{
+var singleNumbers = map[string]int{
 	"one":   1,
 	"two":   2,
 	"three": 3,
@@ -18,7 +19,7 @@ var singleNumbers = map[string]int64{
 	"nine":  9,
 }
 
-var directNumbers = map[string]int64{
+var directNumbers = map[string]int{
 	"ten":       10,
 	"eleven":    11,
 	"twelve":    12,
@@ -29,14 +30,12 @@ var directNumbers = map[string]int64{
 	"seventeen": 17,
 	"eighteen":  18,
 	"nineteen":  19,
-	"ninteen":   19, // misspelling
 }
 
-var tenPrefixNumbers = map[string]int64{
+var tenPrefixNumbers = map[string]int{
 	"twenty":  20,
 	"thirty":  30,
 	"forty":   40,
-	"fourty":  40, // misspelling
 	"fifty":   50,
 	"sixty":   60,
 	"seventy": 70,
@@ -44,24 +43,24 @@ var tenPrefixNumbers = map[string]int64{
 	"ninety":  90,
 }
 
-var largeNumbers = map[string]int64{
+var largeNumbers = map[string]int{
 	"thousand": 1000,
 	"million":  1000000,
 	"billion":  1000000000,
-	"trillion": 1000000000000,
 }
 
 type item struct {
 	typ itemType
 	key string
-	val int64
+	val int
 }
 
 type itemType int
 
 const (
 	itemError itemType = iota
-	itemAnd
+	itemDollars
+	itemCents
 	itemZero
 	itemHundred
 	itemSingle
@@ -69,16 +68,24 @@ const (
 	itemTenPrefix
 	itemLarge
 	itemEOL
+	itemDefault
+)
+
+var (
+	dollarRegex = regexp.MustCompile(`dollars?.?`)
+	centsRegex  = regexp.MustCompile(`cents?.?`)
 )
 
 func newItem(s string) item {
-	switch s {
-	case "zero":
+	switch {
+	case s == "zero":
 		return item{typ: itemZero, key: s}
-	case "hundred":
+	case s == "hundred":
 		return item{typ: itemHundred, key: s, val: 100}
-	case "and":
-		return item{typ: itemAnd, key: s}
+	case dollarRegex.Match([]byte(s)):
+		return item{typ: itemDollars, key: s}
+	case centsRegex.Match([]byte(s)):
+		return item{typ: itemCents, key: s}
 	}
 	return newItemFromMap(s)
 }
@@ -93,22 +100,18 @@ func newItemFromMap(s string) item {
 	} else if v, ok := largeNumbers[s]; ok {
 		return item{typ: itemLarge, key: s, val: v}
 	}
-	return item{key: s}
-}
-
-func (i item) String() string {
-	if i.typ == itemEOL {
-		return "EOL"
-	}
-	return i.key
+	return item{typ: itemDefault, key: s}
 }
 
 type parser struct {
-	items []item
-	pos   int
-	prev  int64
-	sum   int64
-	err   error
+	items       []item
+	pos         int
+	prev        int
+	sum         int
+	dollars     int
+	cents       int
+	dollarsDone bool
+	err         error
 }
 
 func newParser(s string) *parser {
@@ -135,7 +138,9 @@ func (p *parser) peek() item {
 }
 
 func preprocess(s string) string {
+	s = strings.ToLower(s)
 	s = strings.Replace(s, ",", "", -1)
+	s = strings.Replace(s, ".", "", -1)
 	s = strings.Replace(s, "-", " ", -1)
 	return s
 }
@@ -143,7 +148,7 @@ func preprocess(s string) string {
 type parseFn func(*parser) parseFn
 
 // Parse parses the provided string to an integer.
-func Parse(s string) (int64, error) {
+func Parse(s string) (int, error) {
 	p := newParser(s)
 	for state := parse; state != nil; {
 		state = state(p)
@@ -151,7 +156,10 @@ func Parse(s string) (int64, error) {
 	if p.err != nil {
 		return 0, p.err
 	}
-	return p.sum, nil
+
+	amountInt := p.dollars * 100
+	amountInt += p.cents
+	return amountInt, nil
 }
 
 func parse(p *parser) parseFn {
@@ -165,6 +173,8 @@ func parse(p *parser) parseFn {
 		return parseDirect
 	case itemTenPrefix:
 		return parseTenPrefix
+	case itemDefault:
+		return parseDefault
 	}
 	return parseError(p, i, item{})
 }
@@ -172,10 +182,13 @@ func parse(p *parser) parseFn {
 func parseZero(p *parser) parseFn {
 	i := p.next()
 	next := p.peek()
-	if next.typ != itemEOL {
-		return parseError(p, next, i)
+	switch next.typ {
+	case itemDollars:
+		return parseDollars
+	case itemEOL:
+		return nil
 	}
-	return nil
+	return parseError(p, next, i)
 }
 
 func parseSingle(p *parser) parseFn {
@@ -189,9 +202,14 @@ func parseSingle(p *parser) parseFn {
 	case itemLarge:
 		p.prev = i.val
 		return parseLarge
-	case itemEOL:
+	case itemDollars:
 		p.sum += p.prev + i.val
-		return nil
+		return parseDollars
+	case itemCents:
+		p.sum += p.prev + i.val
+		return parseCents
+	case itemDefault:
+		return parseDefault
 	}
 	return parseError(p, next, i)
 }
@@ -206,9 +224,14 @@ func parseDirect(p *parser) parseFn {
 	case itemLarge:
 		p.prev = i.val
 		return parseLarge
-	case itemEOL:
+	case itemDollars:
 		p.sum += p.prev + i.val
-		return nil
+		return parseDollars
+	case itemCents:
+		p.sum += p.prev + i.val
+		return parseCents
+	case itemDefault:
+		return parseDefault
 	}
 	return parseError(p, next, i)
 }
@@ -228,15 +251,29 @@ func parseTenPrefix(p *parser) parseFn {
 			return parseHundred
 		case itemLarge:
 			return parseLarge
+		case itemDollars:
+			p.sum += p.prev
+			return parseDollars
+		case itemCents:
+			p.sum += p.prev
+			return parseCents
+		case itemDefault:
+			p.sum += p.prev
+			return parseDefault
 		default:
 			return parseSingle
 		}
 	case itemLarge:
 		p.prev = i.val
 		return parseLarge
-	case itemEOL:
+	case itemDefault:
+		return parseDefault
+	case itemDollars:
 		p.sum += p.prev + i.val
-		return nil
+		return parseDollars
+	case itemCents:
+		p.sum += p.prev + i.val
+		return parseCents
 	}
 	return parseError(p, next, i)
 }
@@ -254,11 +291,11 @@ func parseHundred(p *parser) parseFn {
 		return parseTenPrefix
 	case itemLarge:
 		return parseLarge
-	case itemAnd:
-		return parseAnd
-	case itemEOL:
+	case itemDollars:
 		p.sum += p.prev
-		return nil
+		return parseDollars
+	case itemDefault:
+		return parseDefault
 	}
 	return parseError(p, next, i)
 }
@@ -275,15 +312,19 @@ func parseLarge(p *parser) parseFn {
 		return parseDirect
 	case itemTenPrefix:
 		return parseTenPrefix
-	case itemAnd:
-		return parseAnd
-	case itemEOL:
-		return nil
+	case itemDollars:
+		return parseDollars
+	case itemDefault:
+		return parseDefault
 	}
 	return parseError(p, next, i)
 }
 
-func parseAnd(p *parser) parseFn {
+func parseDollars(p *parser) parseFn {
+	p.dollarsDone = true
+	p.dollars = p.sum
+	p.sum = 0
+	p.prev = 0
 	i := p.next()
 	next := p.peek()
 	switch next.typ {
@@ -293,6 +334,39 @@ func parseAnd(p *parser) parseFn {
 		return parseDirect
 	case itemTenPrefix:
 		return parseTenPrefix
+	case itemDefault:
+		return parseDefault
+	case itemEOL:
+		return nil
+	}
+	return parseError(p, next, i)
+}
+
+func parseCents(p *parser) parseFn {
+	p.cents = p.sum
+	p.sum = 0
+	p.prev = 0
+
+	return nil
+}
+
+func parseDefault(p *parser) parseFn {
+	i := p.next()
+	next := p.peek()
+	switch next.typ {
+	case itemSingle:
+		return parseSingle
+	case itemDirect:
+		return parseDirect
+	case itemTenPrefix:
+		return parseTenPrefix
+	case itemDefault:
+		return parseDefault
+	case itemEOL:
+		if p.dollarsDone {
+			p.cents = p.sum
+		}
+		return nil
 	}
 	return parseError(p, next, i)
 }
