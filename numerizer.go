@@ -210,6 +210,8 @@ func parseSingle(p *parser) parseFn {
 		return parseCents
 	case itemDefault:
 		return parseDefault
+	case itemEOL:
+		return nil
 	}
 	return parseError(p, next, i)
 }
