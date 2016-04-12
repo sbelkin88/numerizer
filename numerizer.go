@@ -354,6 +354,8 @@ func parseDefault(p *parser) parseFn {
 	i := p.next()
 	next := p.peek()
 	switch next.typ {
+	case itemZero:
+		return parseZero
 	case itemSingle:
 		return parseSingle
 	case itemDirect:

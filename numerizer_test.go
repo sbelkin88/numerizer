@@ -7,6 +7,7 @@ func TestParse(t *testing.T) {
 		in   string
 		want int
 	}{
+		{"zero dollars and thirty four cents", 34},
 		{"zero dollars", 000},
 		{"one dollar", 100},
 		{"three dollars", 300},
