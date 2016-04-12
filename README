@@ -1,7 +1,0 @@
-numerizer
-=========
-
-Package numerizer parses words into integers.
-https://godoc.org/github.com/pnelson/numerizer
-
-Copyright (c) 2015 by Philip Nelson. See LICENSE for details.
